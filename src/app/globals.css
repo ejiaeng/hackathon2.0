@@ -3,25 +3,175 @@
 @tailwind utilities;
 
 :root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 214, 219, 220;
-  --background-end-rgb: 255, 255, 255;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --foreground-rgb: 255, 255, 255;
-    --background-start-rgb: 0, 0, 0;
-    --background-end-rgb: 0, 0, 0;
-  }
+  --ink-primary: #2b1d0e; /* Deep dark brown */
+  --ink-secondary: #5d4037; /* Lighter brown */
+  --parchment-bg: #e6dcc3; /* Warm paper */
+  --parchment-dark: #d3c4a5;
+  --gold-accent: #c5a059;
+  --gold-light: #f0d590; /* Lighter gold for visibility */
+  --gold-shadow: #8a6e38;
+  --magic-glow: rgba(197, 160, 89, 0.3);
+  --error-red: #8b0000;
+  
+  --texture-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.08'/%3E%3C/svg%3E");
 }
 
 body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+  color: var(--ink-primary);
+  background-color: var(--parchment-bg);
+  background-image: 
+    radial-gradient(circle at center, transparent 0%, rgba(0,0,0,0.2) 100%),
+    var(--texture-noise);
+  font-family: var(--font-crimson), serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-cinzel), serif;
+  text-shadow: 0px 1px 1px rgba(0,0,0,0.2);
+}
+
+/* Typography Enhancements */
+.text-ink-primary {
+  color: var(--ink-primary);
+}
+.text-ink-secondary {
+  color: var(--ink-secondary);
+}
+.text-gold {
+  color: var(--gold-accent);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--parchment-dark); 
+  border-left: 1px solid var(--ink-secondary);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--ink-secondary); 
+  border: 1px solid var(--parchment-bg);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-primary); 
+}
+
+/* Inkarnate-style Components */
+
+/* The main container for content */
+.fantasy-box {
+  background-color: rgba(245, 238, 220, 0.85); /* Light parchment */
+  border: 2px solid var(--ink-secondary);
+  box-shadow: 
+    0 0 0 4px var(--parchment-dark), /* Outer ring */
+    0 0 15px rgba(0,0,0,0.3); /* Drop shadow */
+  border-radius: 4px;
+  position: relative;
+}
+
+/* Corner decorations (pseudo-elements) */
+.fantasy-box::before,
+.fantasy-box::after {
+  content: "•";
+  position: absolute;
+  color: var(--gold-accent);
+  font-family: var(--font-cinzel);
+  font-size: 24px;
+  line-height: 1;
+  pointer-events: none;
+}
+.fantasy-box::before {
+  top: -14px;
+  left: -6px;
+  text-shadow: 2px 2px 0 var(--ink-primary);
+}
+.fantasy-box::after {
+  bottom: -14px;
+  right: -6px;
+  text-shadow: -2px -2px 0 var(--ink-primary);
+}
+
+/* The "Magic Mirror" video container */
+.scrying-glass {
+  position: relative;
+  border: 8px solid #2b1d0e; /* Dark wood/metal frame */
+  border-radius: 2px;
+  box-shadow: 
+    inset 0 0 20px rgba(0,0,0,0.8), /* Inner depth */
+    0 0 0 2px var(--gold-accent), /* Gold inlay */
+    0 10px 20px rgba(0,0,0,0.4); /* External shadow */
+  background: #000;
+  overflow: hidden;
+}
+
+/* Overlay for the "glass" reflection/dirt */
+.scrying-glass::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.1) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Buttons */
+.rune-button {
+  background: linear-gradient(135deg, var(--ink-secondary), #3e2723);
+  color: var(--parchment-bg);
+  font-family: var(--font-cinzel);
+  border: 2px solid var(--gold-accent);
+  padding: 8px 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+  transition: all 0.2s ease;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.rune-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 8px rgba(0,0,0,0.4);
+  background: linear-gradient(135deg, #6d4c41, #4e342e);
+}
+
+.rune-button:active {
+  transform: translateY(1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+/* Utility: Decorative Divider */
+.divider-flourish {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 1rem 0;
+  color: var(--gold-accent);
+  font-family: var(--font-cinzel);
+  font-size: 1.2rem;
+  opacity: 0.8;
+}
+.divider-flourish::before,
+.divider-flourish::after {
+  content: "";
+  height: 1px;
+  width: 3rem;
+  background: currentColor;
+  margin: 0 1rem;
+}
+
+/* Animations */
+@keyframes flicker {
+  0% { opacity: 0.8; }
+  50% { opacity: 1; }
+  100% { opacity: 0.8; }
+}
+.animate-flicker {
+  animation: flicker 3s infinite ease-in-out;
 }

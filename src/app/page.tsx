@@ -1,18 +1,30 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Camera, Mic, Settings, Play, Square, Zap, Smartphone, ChevronUp, ChevronDown } from "lucide-react";
+import { Eye, Wind, Sparkles, ChevronUp, ChevronDown } from "lucide-react";
 import { textToMorse, morseToPattern } from "@/lib/morse";
 
 export default function Home() {
+  const [appState, setAppState] = useState<"setup" | "ready">("setup");
+  const [operatingMode, setOperatingMode] = useState<"vision" | "audio">("vision");
   const [isRecording, setIsRecording] = useState(false);
   const [showFlash, setShowFlash] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [detailLevel, setDetailLevel] = useState("low"); // Default to low for speed
   const [isDevMode, setIsDevMode] = useState(false);
+  
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
+  const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
   const [selectedCamera, setSelectedCamera] = useState<string>("");
-  const [morseSpeed, setMorseSpeed] = useState(150);
+  const [selectedMic, setSelectedMic] = useState<string>("");
+  
+  const [morseSpeed, setMorseSpeed] = useState(75);
+  const [autoLaunchTimer, setAutoLaunchTimer] = useState<number | null>(5);
+  const [isPlayingMorse, setIsPlayingMorse] = useState(false);
+  // Ref to track morse state synchronously inside intervals/closures
+  const isPlayingMorseRef = useRef(false);
+  const flashOverlayRef = useRef<HTMLDivElement>(null);
+  const [isVideoReady, setIsVideoReady] = useState(true);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -21,22 +33,52 @@ export default function Home() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
-  // Enumerate cameras
+  // Auto-launch timer logic
   useEffect(() => {
-    const getCameras = async () => {
+    if (appState === "setup" && autoLaunchTimer !== null) {
+      if (autoLaunchTimer > 0) {
+        const timer = setTimeout(() => setAutoLaunchTimer(prev => (prev !== null ? prev - 1 : null)), 1000);
+        return () => clearTimeout(timer);
+      } else {
+        setAppState("ready");
+      }
+    }
+  }, [appState, autoLaunchTimer]);
+
+  // Initial Device Enumeration
+  useEffect(() => {
+    const getDevices = async () => {
       try {
-        await navigator.mediaDevices.getUserMedia({ video: true });
+        // Request permissions first to get labels
+        await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        
         const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoDevices = devices.filter(device => device.kind === "videoinput");
+        const videoDevices = devices.filter(d => d.kind === "videoinput");
+        const audioDevices = devices.filter(d => d.kind === "audioinput");
+        
         setCameras(videoDevices);
-        if (videoDevices.length > 0 && !selectedCamera) {
+        setMicrophones(audioDevices);
+
+        // Default Camera Logic: Prefer "iPhone" (Continuity Camera), else first available
+        const iphoneCamera = videoDevices.find(d => d.label.toLowerCase().includes("iphone"));
+        if (iphoneCamera) {
+          setSelectedCamera(iphoneCamera.deviceId);
+        } else if (videoDevices.length > 0) {
           setSelectedCamera(videoDevices[0].deviceId);
         }
+
+        // Default Mic Logic: Prefer "iPhone", else first available
+        const iphoneMic = audioDevices.find(d => d.label.toLowerCase().includes("iphone"));
+        if (iphoneMic) {
+          setSelectedMic(iphoneMic.deviceId);
+        } else if (audioDevices.length > 0) {
+          setSelectedMic(audioDevices[0].deviceId);
+        }
       } catch (err) {
-        console.error("Error listing cameras:", err);
+        console.error("Error listing devices:", err);
       }
     };
-    getCameras();
+    getDevices();
   }, []);
 
   // Morse Speed Control via Scroll
@@ -58,14 +100,22 @@ export default function Home() {
   };
 
   const resetApp = () => {
-    stopContinuousCapture();
+    stopCameraStream();
+    if (mediaRecorderRef.current) {
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current = null;
+    }
     setDetailLevel("low");
     setIsRecording(false);
     setIsProcessing(false);
+    setAppState("setup");
     triggerSelectionFlash();
   };
 
   const cycleDetailLevel = (direction: "up" | "down") => {
+    // Only allow detail cycling in Vision Mode
+    if (operatingMode !== "vision") return;
+
     const levels = ["low", "medium", "high"];
     let currentIndex = levels.indexOf(detailLevel);
     if (direction === "up") {
@@ -77,9 +127,29 @@ export default function Home() {
     triggerSelectionFlash();
   };
 
+  const toggleOperatingMode = () => {
+    const newMode = operatingMode === "vision" ? "audio" : "vision";
+    
+    // If we were recording audio, stop it cleanly
+    if (operatingMode === "audio" && isRecording) {
+        // Just stop, don't process if switching modes unexpectedly? 
+        // Or maybe process? Let's just stop and reset.
+        if (mediaRecorderRef.current) {
+            mediaRecorderRef.current.stop();
+            mediaRecorderRef.current = null;
+        }
+        setIsRecording(false);
+    }
+    
+    setOperatingMode(newMode);
+    triggerSelectionFlash();
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (["ArrowUp", "ArrowDown", " ", "Shift"].includes(e.key)) {
+      if (appState !== "ready") return; // Ignore keys in setup
+
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "Shift"].includes(e.key)) {
         e.preventDefault();
       }
 
@@ -90,8 +160,12 @@ export default function Home() {
         case "ArrowDown":
           cycleDetailLevel("down");
           break;
+        case "ArrowLeft":
+        case "ArrowRight":
+          toggleOperatingMode();
+          break;
         case " ": // Space
-          toggleRecording();
+          handleSpaceAction();
           break;
         case "Shift":
           resetApp();
@@ -105,21 +179,62 @@ export default function Home() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [detailLevel, isDevMode, isRecording, isProcessing]);
+  }, [detailLevel, isDevMode, isRecording, isProcessing, appState, operatingMode, isVideoReady]); // Added isVideoReady dependency
 
   const triggerFlashPattern = async (content: string) => {
-    const morse = textToMorse(content);
-    const pattern = morseToPattern(morse);
+    console.log(`[Flash] Starting pattern for: "${content}"`);
+    setIsPlayingMorse(true);
+    isPlayingMorseRef.current = true;
     
-    for (const bit of pattern) {
-      if (bit === 1) {
-        setShowFlash(true);
-        await new Promise((resolve) => setTimeout(resolve, morseSpeed));
-        setShowFlash(false);
-      } else {
-        await new Promise((resolve) => setTimeout(resolve, morseSpeed));
+    try {
+      const morse = textToMorse(content);
+      console.log(`[Flash] Morse sequence: ${morse}`);
+      const pattern = morseToPattern(morse);
+      console.log(`[Flash] Pattern length: ${pattern.length} bits`);
+      
+      // Force initial black screen before flashing starts
+      // We use document.body for absolute full-screen control
+      const originalBodyBg = document.body.style.backgroundColor;
+      const originalBodyImage = document.body.style.backgroundImage;
+      
+      document.body.style.backgroundColor = "black";
+      document.body.style.backgroundImage = "none"; // Remove texture for pure contrast
+      
+      // Hide the main app UI explicitly
+      const mainApp = document.querySelector("main");
+      if (mainApp) mainApp.style.opacity = "0";
+
+      await new Promise(r => setTimeout(r, 200));
+
+      for (const bit of pattern) {
+        if (bit === 1) {
+          // DIRECT DOM UPDATE: BODY WHITE
+          document.body.style.backgroundColor = "white";
+          
+          await new Promise((resolve) => setTimeout(resolve, morseSpeed));
+          
+          // DIRECT DOM UPDATE: BODY BLACK
+          document.body.style.backgroundColor = "black";
+        } else {
+          // Off (Black)
+          document.body.style.backgroundColor = "black";
+          await new Promise((resolve) => setTimeout(resolve, morseSpeed));
+        }
+        // Gap between bits
+        await new Promise((resolve) => setTimeout(resolve, morseSpeed)); 
       }
-      await new Promise((resolve) => setTimeout(resolve, morseSpeed / 2));
+
+      // Restore
+      if (mainApp) mainApp.style.opacity = "1";
+      document.body.style.backgroundColor = originalBodyBg;
+      document.body.style.backgroundImage = originalBodyImage;
+
+    } catch (error) {
+      console.error("[Flash] Error generating pattern:", error);
+    } finally {
+      console.log("[Flash] Pattern complete");
+      setIsPlayingMorse(false);
+      isPlayingMorseRef.current = false;
     }
   };
 
@@ -127,306 +242,401 @@ export default function Home() {
     if (videoRef.current && canvasRef.current) {
       const canvas = canvasRef.current;
       const video = videoRef.current;
+      
+      if (video.readyState !== 4 || video.videoWidth === 0 || video.videoHeight === 0) {
+        return null;
+      }
+
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       const ctx = canvas.getContext("2d");
       if (ctx) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        return canvas.toDataURL("image/jpeg", 0.5); // Lower quality for faster upload
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.5);
+        if (dataUrl === "data:,") return null; // Empty image check
+        return dataUrl;
       }
     }
     return null;
   };
 
-  const processFrame = async () => {
-    if (isRequestInFlight.current) return;
-    
-    const photoDataUrl = captureFrame();
-    if (!photoDataUrl) return;
+  const processFrame = async (manualAudioBlob?: Blob | null, manualPhotoDataUrl?: string | null) => {
+    // If playing Morse, strictly pause capture to allow "Blackout" to persist without interruption
+    if (isPlayingMorseRef.current) {
+      return;
+    }
 
-    // Grab audio chunks and reset
-    const audioBlob = audioChunksRef.current.length > 0 
-      ? new Blob(audioChunksRef.current, { type: "audio/webm" }) 
-      : null;
-    audioChunksRef.current = [];
+    if (isRequestInFlight.current) {
+      console.log("Skipping frame: Request already in flight");
+      return;
+    }
+    
+    // In Audio mode, we don't need images. In Vision mode, we need images.
+    // However, the backend is capable of handling both.
+    // We should optimize to only capture what's needed.
+    
+    let photoDataUrl: string | null = manualPhotoDataUrl || null;
+    if (operatingMode === "vision" && !photoDataUrl) {
+      if (!isVideoReady) {
+        console.log("Skipping frame: Video not ready");
+        return;
+      }
+      console.log("Capturing frame for Vision analysis...");
+      photoDataUrl = captureFrame();
+      if (!photoDataUrl) {
+        console.log("Frame capture failed or empty");
+        return; 
+      }
+    }
+
+    // Grab audio chunks
+    // If manualAudioBlob is provided (from Stop), use it. 
+    // Otherwise, if in Vision mode (or continuous audio - deprecated), check chunks.
+    let audioBlob: Blob | null = manualAudioBlob || null;
+
+    if (!audioBlob && audioChunksRef.current.length > 0) {
+       // Only process chunks automatically in Vision mode (if we were mixing) or if logic changes.
+       // But for "Wait until stop", we normally won't use this block for Audio Mode anymore.
+       // However, we'll keep it for robustness if we ever go back to streaming.
+       if (operatingMode !== "audio") { 
+          audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+          audioChunksRef.current = [];
+       }
+    }
+
+    // In Audio mode, if no audio, skip
+    if (operatingMode === "audio" && !audioBlob) {
+      // console.log("No audio data available for Audio analysis");
+      return;
+    }
+
+    if (operatingMode === "audio") {
+        console.log(`Processing audio chunk size: ${audioBlob?.size} bytes`);
+    }
 
     isRequestInFlight.current = true;
     setIsProcessing(true);
 
     try {
+      console.log(`Sending request to Azure OpenAI (${operatingMode} mode)...`);
       const formData = new FormData();
-      formData.append("image", photoDataUrl);
-      formData.append("detailLevel", detailLevel);
+      if (photoDataUrl) {
+        formData.append("image", photoDataUrl);
+        formData.append("detailLevel", detailLevel);
+      }
       if (audioBlob) {
         formData.append("audio", audioBlob, "audio.webm");
       }
 
+      const startTime = Date.now();
       const response = await fetch("/api/process", {
         method: "POST",
         body: formData,
       });
       const data = await response.json();
+      console.log(`Response received in ${Date.now() - startTime}ms:`, data);
+
       if (data.success) {
-        const textToFlash = `${data.audioText} ${data.imageDescription}`.trim();
-        if (textToFlash) {
-          await triggerFlashPattern(textToFlash);
+        // Construct flash text based on mode
+        let textToFlash = "";
+        if (operatingMode === "vision") {
+            // In vision mode, we prioritize image description
+            textToFlash = data.imageDescription || "";
+        } else {
+            // In audio mode, we prioritize audio text
+            textToFlash = data.audioText || "";
         }
+        
+        if (textToFlash) {
+          console.log(`Triggering flash pattern for: "${textToFlash.slice(0, 20)}..."`);
+          await triggerFlashPattern(textToFlash);
+        } else {
+          console.log("No text content returned to flash.");
+        }
+      } else {
+          console.error("API Error:", data.error);
       }
     } catch (err) {
       console.error("Processing error:", err);
     } finally {
       isRequestInFlight.current = false;
       setIsProcessing(false);
+      console.log("Processing cycle complete.");
     }
   };
 
-  const startContinuousCapture = async () => {
+  // Auto-start Camera in Vision Mode
+  useEffect(() => {
+    if (appState === "ready" && operatingMode === "vision") {
+      startCameraStream();
+    } else {
+      stopCameraStream();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appState, operatingMode, selectedCamera]);
+
+  const startCameraStream = async () => {
+    console.log("Starting camera stream...");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: selectedCamera ? { deviceId: { exact: selectedCamera } } : true, 
-        audio: true
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: selectedCamera ? { deviceId: { exact: selectedCamera } } : true,
+        audio: false,
       });
+      
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        // Play to ensure it starts (sometimes needed)
+        videoRef.current.play().catch(e => console.error("Video play error:", e));
       }
-      
-      // Start recording audio in chunks
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-      mediaRecorder.start(250); // Request data every 250ms
-
-      setIsRecording(true);
-      intervalRef.current = setInterval(processFrame, 250); // Capture every 0.25s
+      setIsVideoReady(true);
     } catch (err) {
-      console.error("Error starting capture:", err);
+      console.error("Error starting camera:", err);
+      setIsVideoReady(false);
     }
   };
 
-  const stopContinuousCapture = () => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current = null;
-    }
+  const stopCameraStream = () => {
     if (videoRef.current?.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream;
       stream.getTracks().forEach(track => track.stop());
       videoRef.current.srcObject = null;
     }
-    setIsRecording(false);
-    setIsProcessing(false);
+    setIsVideoReady(false);
   };
 
-  const toggleRecording = () => {
-    if (isRecording) {
-      stopContinuousCapture();
-    } else {
-      startContinuousCapture();
+  const startAudioRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: selectedMic ? { deviceId: { exact: selectedMic } } : true,
+        video: false,
+      });
+      
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      console.log("Audio recording started.");
+    } catch (err) {
+      console.error("Error starting audio recording:", err);
     }
   };
+
+  const stopAudioRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      const recorder = mediaRecorderRef.current;
+      recorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        audioChunksRef.current = [];
+        console.log(`[Audio] Recording stopped. Blob size: ${audioBlob.size}. Processing...`);
+        processFrame(audioBlob);
+        
+        // Stop all audio tracks
+        recorder.stream.getTracks().forEach(track => track.stop());
+      };
+      recorder.stop();
+      setIsRecording(false);
+      mediaRecorderRef.current = null;
+    }
+  };
+
+  const handleSpaceAction = () => {
+    if (operatingMode === "vision") {
+      // Vision Mode: Snapshot
+      if (isVideoReady && !isRequestInFlight.current) {
+        triggerSelectionFlash(); // Visual feedback
+        const photoData = captureFrame();
+         if (photoData) {
+           processFrame(null, photoData);
+         }
+      }
+    } else {
+      // Audio Mode: Toggle Recording
+      if (isRecording) {
+        stopAudioRecording();
+      } else {
+        startAudioRecording();
+      }
+    }
+  };
+
 
   const triggerFlash = () => {
     setShowFlash(true);
     setTimeout(() => setShowFlash(false), 500); // Flash for 500ms
   };
 
-  return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-24 bg-gray-900 text-white relative overflow-hidden">
-      {/* Flash Overlay - FULL SCREEN WHITE */}
-      {showFlash && (
-        <div className="fixed inset-0 bg-white z-[9999] transition-opacity duration-0" />
-      )}
-
-      <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex">
-        <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto  lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30">
-          VisionFlash {isDevMode ? "(Dev Mode)" : "(Gesture Mode)"}
-        </p>
-        <p className="text-xs opacity-50">Press 'D' to toggle Dev Mode</p>
-      </div>
-
-      <div className="flex flex-col items-center gap-8 w-full max-w-2xl">
-        {/* Main Visual/Gesture Interface */}
-        <div className="text-center mb-4">
-          <h1 className="text-5xl font-extrabold mb-2 tracking-tighter">
-            VISION MODE
-          </h1>
-          <div className="flex flex-col gap-1">
-            <p className="text-2xl text-yellow-500 font-mono font-bold">
-              DETAIL: {detailLevel.toUpperCase()}
-            </p>
-            <div className="flex items-center justify-center gap-4 text-sm text-blue-400 font-mono">
-              <p className="animate-pulse">
-                {isRecording ? "● ANALYZING EVERY 0.25s" : isProcessing ? "● PROCESSING" : "READY (SPACE)"}
-              </p>
-              <div className="flex items-center gap-1 bg-blue-900/40 px-2 py-0.5 rounded border border-blue-500/30">
-                <Zap size={12} />
-                <span>{morseSpeed}ms</span>
-              </div>
-            </div>
+  if (appState === "setup") {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center p-8 bg-transparent text-ink-primary font-crimson">
+        <div className="w-full max-w-md space-y-8">
+          <div className="text-center">
+            <h1 className="text-6xl font-bold tracking-widest mb-2 font-cinzel text-ink-primary drop-shadow-md">eyeAI</h1>
+            <div className="divider-flourish text-gold text-2xl">❖</div>
+            <p className="text-ink-secondary italic font-serif text-xl">The Oracle's Eye</p>
           </div>
-        </div>
 
-        <div className="relative w-full aspect-video bg-black rounded-2xl overflow-hidden border-4 border-gray-700 shadow-2xl">
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className={`w-full h-full object-cover transition-opacity duration-500 ${isRecording ? "opacity-100" : "opacity-40"}`}
-          />
-          <canvas ref={canvasRef} className="hidden" />
-          {!isRecording && !isProcessing && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-              <div className="text-center p-8 bg-black/60 backdrop-blur-sm rounded-3xl border border-white/10">
-                <Camera className="w-16 h-16 text-white mx-auto mb-6" />
-                <div className="space-y-4">
-                  <div className="flex items-center justify-center gap-4">
-                    <span className="px-3 py-1 bg-white text-black rounded font-bold text-sm">↑</span>
-                    <span className="text-white text-lg font-medium uppercase tracking-tight">INCREASE DETAIL</span>
-                  </div>
-                  <div className="flex items-center justify-center gap-4">
-                    <span className="px-3 py-1 bg-white text-black rounded font-bold text-sm">↓</span>
-                    <span className="text-white text-lg font-medium uppercase tracking-tight">DECREASE DETAIL</span>
-                  </div>
-                  <div className="flex items-center justify-center gap-4 pt-2">
-                    <span className="px-6 py-1 bg-blue-600 text-white rounded font-bold text-sm">SPACE</span>
-                    <span className="text-white text-lg font-medium uppercase tracking-tight">START / STOP</span>
-                  </div>
-                  <div className="flex items-center justify-center gap-4 pt-2">
-                    <span className="px-4 py-1 bg-red-600 text-white rounded font-bold text-sm">SHIFT</span>
-                    <span className="text-white text-lg font-medium uppercase tracking-tight">RESET APP</span>
-                  </div>
-                  <div className="flex items-center justify-center gap-4 pt-4 text-xs text-gray-400">
-                    <div className="flex items-center gap-1">
-                      <ChevronUp size={14} />
-                      <ChevronDown size={14} />
-                      <span>SCROLL TO ADJUST MORSE SPEED</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Action Buttons - Always visible but styled differently in Dev Mode */}
-        <div className="flex items-center gap-6">
-          <button
-            onClick={toggleRecording}
-            disabled={isProcessing}
-            className={`flex items-center gap-2 px-12 py-6 rounded-full font-bold text-2xl transition-all ${
-              isRecording 
-                ? "bg-red-600 hover:bg-red-700 animate-pulse scale-110" 
-                : isProcessing
-                ? "bg-gray-600 cursor-not-allowed"
-                : "bg-blue-600 hover:bg-blue-700"
-            }`}
-          >
-            {isRecording ? <Square size={32} /> : <Play size={32} />}
-            {isRecording ? "STOP" : isProcessing ? "PROCESSING..." : "START"}
-          </button>
-        </div>
-
-        {/* Dev Window */}
-        {isDevMode && (
-          <div className="w-full p-6 bg-gray-800/80 backdrop-blur-md rounded-xl border border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.5)] animate-in fade-in zoom-in duration-200">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <Settings className="text-blue-400" />
-                <h2 className="text-xl font-semibold text-blue-400">Developer Settings</h2>
-              </div>
-              <span className="text-xs bg-blue-900 text-blue-200 px-2 py-1 rounded">DEBUG ACTIVE</span>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <label className="flex flex-col gap-2">
-                <span className="text-sm text-gray-400">Camera Device</span>
+          <div className="space-y-6 fantasy-box p-8">
+            <div className="space-y-2">
+              <label className="text-sm font-bold uppercase tracking-widest text-ink-secondary flex items-center gap-2 font-cinzel">
+                <Eye size={16} className="text-gold" /> Crystal Source
+              </label>
+              <div className="relative">
                 <select 
                   value={selectedCamera}
                   onChange={(e) => {
                     setSelectedCamera(e.target.value);
-                    console.log(`Camera changed to: ${e.target.value}`);
+                    setAutoLaunchTimer(null); // Cancel auto-launch on interaction
                   }}
-                  className="bg-gray-700 p-2 rounded border border-gray-600"
+                  className="w-full bg-[#f5eee0] border-2 border-[var(--ink-secondary)] rounded-sm p-3 text-sm focus:ring-2 focus:ring-[var(--gold-accent)] outline-none appearance-none shadow-inner font-serif text-ink-primary"
                 >
                   {cameras.map((camera) => (
                     <option key={camera.deviceId} value={camera.deviceId}>
-                      {camera.label || `Camera ${camera.deviceId.slice(0, 5)}...`}
+                      {camera.label || `Crystal ${camera.deviceId.slice(0, 5)}...`}
                     </option>
                   ))}
                 </select>
-              </label>
-
-              <label className="flex flex-col gap-2">
-                <span className="text-sm text-gray-400">Detail Level</span>
-                <select 
-                  value={detailLevel}
-                  onChange={(e) => {
-                    setDetailLevel(e.target.value);
-                    triggerSelectionFlash();
-                  }}
-                  className="bg-gray-700 p-2 rounded border border-gray-600 text-white"
-                >
-                  <option value="low">Low (Fastest)</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High (Slower)</option>
-                </select>
-              </label>
-
-              <label className="flex flex-col gap-2">
-                <span className="text-sm text-gray-400">Morse Speed ({morseSpeed}ms)</span>
-                <input 
-                  type="range"
-                  min="50"
-                  max="500"
-                  step="10"
-                  value={morseSpeed}
-                  onChange={(e) => setMorseSpeed(parseInt(e.target.value))}
-                  className="w-full"
-                />
-              </label>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-ink-secondary">▼</div>
+              </div>
             </div>
 
-            <div className="mt-6 pt-4 border-t border-gray-700 flex justify-center">
-              <button
-                onClick={() => triggerFlashPattern("TEST")}
-                disabled={isProcessing || isRecording}
-                className="flex items-center gap-2 px-6 py-2 bg-yellow-500/20 hover:bg-yellow-500/40 border border-yellow-500/50 rounded-full font-bold text-yellow-500 transition-all text-sm"
-              >
-                <Zap size={16} />
-                TEST MORSE FLASH
-              </button>
+            <div className="space-y-2">
+              <label className="text-sm font-bold uppercase tracking-widest text-ink-secondary flex items-center gap-2 font-cinzel">
+                <Wind size={16} className="text-gold" /> Echo Source
+              </label>
+              <div className="relative">
+                <select 
+                  value={selectedMic}
+                  onChange={(e) => {
+                    setSelectedMic(e.target.value);
+                    setAutoLaunchTimer(null); // Cancel auto-launch on interaction
+                  }}
+                  className="w-full bg-[#f5eee0] border-2 border-[var(--ink-secondary)] rounded-sm p-3 text-sm focus:ring-2 focus:ring-[var(--gold-accent)] outline-none appearance-none shadow-inner font-serif text-ink-primary"
+                >
+                  {microphones.map((mic) => (
+                    <option key={mic.deviceId} value={mic.deviceId}>
+                      {mic.label || `Echo ${mic.deviceId.slice(0, 5)}...`}
+                    </option>
+                  ))}
+                </select>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-ink-secondary">▼</div>
+              </div>
             </div>
           </div>
-        )}
-      </div>
 
-      <div className="mb-32 grid text-center lg:max-w-5xl lg:w-full lg:mb-0 lg:grid-cols-3 lg:text-left opacity-50">
-        <div className="group rounded-lg border border-transparent px-5 py-4 transition-colors">
-          <h2 className={`mb-3 text-2xl font-semibold`}>Vision <Camera className="inline" /></h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Analyzes environment every 0.25s via Azure GPT-4o.
-          </p>
+          <div className="space-y-3">
+            <button
+              onClick={() => setAppState("ready")}
+              className="w-full rune-button py-4 text-xl tracking-widest flex items-center justify-center gap-2"
+            >
+              Enter The Realm {autoLaunchTimer !== null && `(${autoLaunchTimer}s)`}
+            </button>
+            {autoLaunchTimer !== null && (
+              <p className="text-center text-sm text-[#5d4037] animate-pulse italic">
+                The prophecy fulfills in {autoLaunchTimer}...
+              </p>
+            )}
+          </div>
         </div>
-        <div className="group rounded-lg border border-transparent px-5 py-4 transition-colors">
-          <h2 className={`mb-3 text-2xl font-semibold`}>Audio <Mic className="inline" /></h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Transcribes speech via Azure Speech Services.
-          </p>
-        </div>
-        <div className="group rounded-lg border border-transparent px-5 py-4 transition-colors">
-          <h2 className={`mb-3 text-2xl font-semibold`}>Morse Flash <Zap className="inline" /></h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Converts both Vision and Audio into Morse code flashes.
-          </p>
-        </div>
-      </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="flex min-h-screen flex-col items-center justify-between p-4 bg-transparent text-ink-primary overflow-hidden font-crimson">
+      
+      {/* HEADER: Status & Mode */}
+      <header className="w-full flex justify-between items-start z-10">
+         <div className="flex flex-col">
+            <h1 className="text-4xl font-bold tracking-widest font-cinzel text-gold drop-shadow-md">eyeAI</h1>
+            <span className="text-xs uppercase tracking-[0.3em] text-ink-secondary font-bold">The Oracle's Eye</span>
+         </div>
+         
+         <div className="flex flex-col items-end gap-2">
+            <div className={`flex items-center gap-2 px-3 py-1 rounded-sm border border-[var(--ink-secondary)] ${isRecording ? 'bg-[#3e2723] text-gold animate-pulse' : 'bg-[var(--parchment-dark)] text-ink-secondary'}`}>
+               <div className={`w-2 h-2 rounded-full ${isRecording ? 'bg-red-500' : 'bg-gray-400'}`} />
+               <span className="text-xs font-bold font-cinzel tracking-widest">
+                  {isRecording ? "COMMUNING..." : "IDLE"}
+               </span>
+            </div>
+
+            {/* Processing Indicator */}
+            {(isProcessing || isRequestInFlight.current) && (
+               <div className="flex items-center gap-2 text-gold animate-pulse">
+                  <Sparkles size={14} />
+                  <span className="text-xs font-cinzel tracking-widest">DIVINING...</span>
+               </div>
+            )}
+         </div>
+      </header>
+
+      {/* MAIN: Video Feed (Pushed Up) */}
+      <section className="relative flex flex-col items-center justify-center w-full flex-1 min-h-0 py-4">
+         <div className={`relative scrying-glass transition-all duration-300 ${operatingMode === 'vision' ? 'w-64 h-64 rounded-full overflow-hidden border-4' : 'w-64 h-32 flex items-center justify-center'}`}>
+            
+            {/* Vision Mode: Video Element */}
+            {operatingMode === 'vision' && (
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                onCanPlay={() => setIsVideoReady(true)}
+                className="w-full h-full object-cover opacity-80 sepia-[.3] contrast-125 brightness-90 grayscale-[0.2]"
+              />
+            )}
+
+            {/* Audio Mode: Waveform Placeholder */}
+            {operatingMode === 'audio' && (
+               <div className="flex flex-col items-center gap-2">
+                  <div className="flex items-end gap-1 h-8">
+                     {[...Array(5)].map((_, i) => (
+                        <div key={i} className={`w-2 bg-gold-light ${isRecording ? 'animate-pulse' : 'h-1'}`} style={{ height: isRecording ? `${Math.random() * 100}%` : '4px' }} />
+                     ))}
+                  </div>
+                  <span className="text-xs text-gold-light font-cinzel tracking-widest">LISTENING TO THE WINDS</span>
+               </div>
+            )}
+
+            {/* HUD Overlay */}
+            <div className="absolute inset-0 border-[2px] border-gold-light/30 pointer-events-none flex flex-col justify-between p-3 m-1 rounded-full">
+               <div className="flex justify-center mt-4 text-[10px] text-gold-light/80 font-cinzel">
+                  <span>{operatingMode === 'vision' ? '● SCRYING' : '● HEARING'}</span>
+               </div>
+            </div>
+         </div>
+      </section>
+
+      {/* FOOTER: Controls */}
+      <footer className="flex flex-col items-center justify-end pb-8 gap-4 z-10 w-full max-w-sm">
+         {/* Dynamic Instructions */}
+         <div className="w-full fantasy-box px-4 py-3">
+           <p className="text-lg font-cinzel font-bold text-ink-primary text-center">
+             {operatingMode === 'vision' 
+               ? "PRESS SPACE TO DIVINE"
+               : isRecording 
+                  ? "PRESS SPACE TO CEASE" 
+                  : "PRESS SPACE TO COMMUNE"
+             }
+           </p>
+           
+           <div className="divider-flourish text-xs my-1">❖</div>
+           
+           <div className="text-[10px] text-ink-secondary flex justify-between px-2 font-serif italic font-bold">
+             <span>←/→ SHIFT REALMS</span>
+             {operatingMode === 'vision' && (
+               <span>↑/↓ ADJUST CLARITY</span>
+             )}
+           </div>
+         </div>
+      </footer>
+      {/* Hidden Canvas for Capture */}
+      <canvas ref={canvasRef} className="hidden" />
     </main>
   );
 }

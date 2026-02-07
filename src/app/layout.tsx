@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Cinzel, Crimson_Pro } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"] });
+const cinzel = Cinzel({ subsets: ["latin"], variable: '--font-cinzel' });
+const crimson = Crimson_Pro({ subsets: ["latin"], variable: '--font-crimson' });
 
 export const metadata: Metadata = {
-  title: "VisionFlash - Audio/Image to Flash for Deaf-Blind",
-  description: "Helping deaf-blind users perceive their environment through bright white screen flashes.",
+  title: "eyeAI - The Oracle",
+  description: "An archaic interface for the modern world.",
 };
 
 export default function RootLayout({
@@ -16,7 +17,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={inter.className}>{children}</body>
+      <body className={`${cinzel.variable} ${crimson.variable} font-serif`}>{children}</body>
     </html>
   );
 }

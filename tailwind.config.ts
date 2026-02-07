@@ -8,6 +8,19 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      colors: {
+        "ink-primary": "var(--ink-primary)",
+        "ink-secondary": "var(--ink-secondary)",
+        gold: "var(--gold-accent)",
+        "gold-light": "var(--gold-light)",
+        parchment: "var(--parchment-bg)",
+        "parchment-dark": "var(--parchment-dark)",
+      },
+      fontFamily: {
+        cinzel: ["var(--font-cinzel)", "serif"],
+        crimson: ["var(--font-crimson)", "serif"],
+        serif: ["var(--font-crimson)", "serif"], // Override default serif
+      },
       backgroundImage: {
         "gradient-radial": "radial-gradient(var(--tw-gradient-stops))",
         "gradient-conic":
