@@ -558,7 +558,7 @@ export default function Home() {
          </div>
          
          <div className="flex flex-col items-end gap-2">
-            <div className={`flex items-center gap-2 px-3 py-1 rounded-sm border border-[var(--ink-secondary)] ${isRecording ? 'bg-[#3e2723] text-gold-light animate-pulse' : 'bg-[var(--parchment-dark)] text-ink-secondary'}`}>
+            <div className={`flex items-center gap-2 px-3 py-1 rounded-sm border border-[var(--ink-secondary)] ${isRecording ? 'bg-[#3e2723] text-white animate-pulse' : 'bg-[var(--parchment-dark)] text-ink-secondary'}`}>
                <div className={`w-2 h-2 rounded-full ${isRecording ? 'bg-red-500' : 'bg-gray-400'}`} />
                <span className="text-xs font-bold font-cinzel tracking-widest">
                   {isRecording ? "COMMUNING..." : "IDLE"}
@@ -596,16 +596,16 @@ export default function Home() {
                <div className="flex flex-col items-center gap-2">
                   <div className="flex items-end gap-1 h-8">
                      {[...Array(5)].map((_, i) => (
-                        <div key={i} className={`w-2 bg-gold-light ${isRecording ? 'animate-pulse' : 'h-1'}`} style={{ height: isRecording ? `${Math.random() * 100}%` : '4px' }} />
+                        <div key={i} className={`w-2 bg-white ${isRecording ? 'animate-pulse' : 'h-1'}`} style={{ height: isRecording ? `${Math.random() * 100}%` : '4px' }} />
                      ))}
                   </div>
-                  <span className="text-xs text-gold-light font-cinzel tracking-widest">LISTENING TO THE WINDS</span>
+                  <span className="text-xs text-white font-cinzel tracking-widest">LISTENING TO THE WINDS</span>
                </div>
             )}
 
             {/* HUD Overlay */}
-            <div className="absolute inset-0 border-[2px] border-gold-light/40 pointer-events-none flex flex-col justify-between p-3 m-1 rounded-full">
-               <div className="flex justify-center mt-4 text-[10px] text-gold-light font-cinzel">
+            <div className={`absolute inset-0 border-[2px] pointer-events-none flex flex-col justify-between p-3 m-1 rounded-full ${operatingMode === 'vision' ? 'border-gold-light/40' : 'border-white/40'}`}>
+               <div className={`flex justify-center mt-4 text-[10px] font-cinzel ${operatingMode === 'vision' ? 'text-gold-light' : 'text-white'}`}>
                   <span>{operatingMode === 'vision' ? '● SCRYING' : '● HEARING'}</span>
                </div>
             </div>

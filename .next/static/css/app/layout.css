@@ -70,7 +70,7 @@
   --parchment-bg: #e6dcc3; /* Warm paper */
   --parchment-dark: #d3c4a5;
   --gold-accent: #c5a059;
-  --gold-light: #f0d590; /* Lighter gold for visibility */
+  --gold-light: #ffeeb0; /* Much lighter gold (almost white-gold) */
   --gold-shadow: #8a6e38;
   --magic-glow: rgba(197, 160, 89, 0.3);
   --error-red: #8b0000;
