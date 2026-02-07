@@ -558,7 +558,7 @@ export default function Home() {
          </div>
          
          <div className="flex flex-col items-end gap-2">
-            <div className={`flex items-center gap-2 px-3 py-1 rounded-sm border border-[var(--ink-secondary)] ${isRecording ? 'bg-[#3e2723] text-gold animate-pulse' : 'bg-[var(--parchment-dark)] text-ink-secondary'}`}>
+            <div className={`flex items-center gap-2 px-3 py-1 rounded-sm border border-[var(--ink-secondary)] ${isRecording ? 'bg-[#3e2723] text-gold-light animate-pulse' : 'bg-[var(--parchment-dark)] text-ink-secondary'}`}>
                <div className={`w-2 h-2 rounded-full ${isRecording ? 'bg-red-500' : 'bg-gray-400'}`} />
                <span className="text-xs font-bold font-cinzel tracking-widest">
                   {isRecording ? "COMMUNING..." : "IDLE"}
@@ -567,7 +567,7 @@ export default function Home() {
 
             {/* Processing Indicator */}
             {(isProcessing || isRequestInFlight.current) && (
-               <div className="flex items-center gap-2 text-gold animate-pulse">
+               <div className="flex items-center gap-2 text-gold-light animate-pulse">
                   <Sparkles size={14} />
                   <span className="text-xs font-cinzel tracking-widest">DIVINING...</span>
                </div>
@@ -604,8 +604,8 @@ export default function Home() {
             )}
 
             {/* HUD Overlay */}
-            <div className="absolute inset-0 border-[2px] border-gold-light/30 pointer-events-none flex flex-col justify-between p-3 m-1 rounded-full">
-               <div className="flex justify-center mt-4 text-[10px] text-gold-light/80 font-cinzel">
+            <div className="absolute inset-0 border-[2px] border-gold-light/40 pointer-events-none flex flex-col justify-between p-3 m-1 rounded-full">
+               <div className="flex justify-center mt-4 text-[10px] text-gold-light font-cinzel">
                   <span>{operatingMode === 'vision' ? '● SCRYING' : '● HEARING'}</span>
                </div>
             </div>
